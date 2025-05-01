@@ -1,0 +1,167 @@
+#include <Arduino.h>
+
+#ifndef SHIFT_STRUCT
+#define SHIFT_STRUCT
+
+class PISORegister {
+    private:
+    int clkPin = 0;
+    int ldPin = 0;
+    int qhPin = 0;
+    int pinNum = 0;
+    bool inputLogic = false;
+
+    bool clkPol = true;
+    bool ldPol = false;
+    unsigned long ldClkPulseDelay = 0;
+
+    unsigned long pulseWidth = 100;
+    unsigned long readingDelay = 0;
+    int validInputLoopNumber = 2;
+
+    //Internal variables for pulse functions
+    int edgeCount = 0;
+    int pulseCount = 0;
+
+    bool phase = false; //false for LD pulse, true for clk pulses
+    unsigned long lastEdgeTimestamp = 0;
+    unsigned long lastReadingTimestamp = 0;
+
+    /**
+     * @brief Generates single pulse, f.e. rising and falling edge (or vice versa) 
+     * @param pin Pin for pulse
+     * @param polarity True for rising edge first, false otherwise
+     * @return False when pulsing, true when done
+     */
+    bool GeneratePulse(int pin, bool polarity);
+
+    /**
+     * @brief Generates "nested" rising and falling edge pulse (one pulse inside another).
+     * The outer pulse will start 1 ldClkPulseDelay before the start of inner pulse and will end 1 ldClkPulseDelay 
+     * after the inner pulse ended. This is useful when register requires clock pulse for asynchronous load.
+     * @param innerPin Pin for inner pulse
+     * @param innerPolarity True for rising edge first, false otherwise
+     * @param outerPin Pin for outer pulse
+     * @param outerPolarity True for rising edge first, false otherwise
+     * @return False when pulsing, true when done
+     */
+    bool GenerateNestedPulse(int innerPin, bool innerPolarity, int outerPin, bool outerPolarity);
+
+    uint64_t inputData;
+    
+    uint64_t tempData;
+    uint64_t rawData;
+
+    uint16_t constantInputLoopsCounter;
+
+    public:
+    PISORegister(){}
+
+    /**
+     * @brief Prepares for reading
+     * @param clkPin Pin used for clock signal
+     * @param ldPin Pin used for asynchronous load signal
+     * @param qhPin Output of shift register
+     * @param pinNum Number of register inputs (max 64)
+     * @param inputLogic Type of input logic (true for normal, false for inverse)
+     */
+    void Init(int clkPin, int ldPin, int qhPin, int pinNum, bool inputLogic){
+        this->clkPin = clkPin;
+        this->ldPin = ldPin;
+        this->qhPin = qhPin;
+        this->pinNum = pinNum;
+        if (pinNum > 64){
+            pinNum = 64;
+        }
+        this->inputLogic = inputLogic;
+
+        pinMode(clkPin, OUTPUT);
+        digitalWrite(clkPin, !clkPol);
+        pinMode(ldPin, OUTPUT);
+        digitalWrite(ldPin, !ldPol);
+        pinMode(qhPin, INPUT);
+    }
+
+    /**
+     * @brief Set delay between 2 readings (in microseconds, default is 0)
+     */
+    void SetReadingDelay(unsigned long readingDelay){
+        this->readingDelay = readingDelay;
+    }
+
+    /**
+     * @brief In order to mitigate the glitch occurence, the input must stay constant 
+     * for certain time to be considered valid (in microseconds), this time
+     * must be greater or equal to readingDelay (which is default value).
+     * NOTE: This is achieved through counting the reading loops in which
+     * the input was constant.
+     */
+    void SetGlitchPrevention(unsigned long glitchDelay){
+        if (glitchDelay < readingDelay){
+            validInputLoopNumber = 1;
+        }
+        else {
+            validInputLoopNumber = glitchDelay / readingDelay;
+            if ((double)glitchDelay / readingDelay > validInputLoopNumber){
+                validInputLoopNumber++;
+            }
+        }
+    }
+
+    /**
+     * @brief Sets width of 1 pulse (time between 2 edges in microseconds, default is 100)
+     */
+    void SetPulseWidth(unsigned long pulseWidth){
+        this->pulseWidth = pulseWidth;
+    }
+
+    /**
+     * @brief Sets polarity of clock edge - true for rising edge, false for falling edge (default is true)
+     */
+    void SetClockPolarity(bool clkPol){
+        this->clkPol = clkPol;
+    }
+
+    /**
+     * @brief Sets logic level of asynchronous loading - false for 0, true for 1 (default is false)
+     */
+    void SetLoadPolarity(bool ldPol){
+        this->ldPol = ldPol;
+    }
+
+    /**
+     * @brief If not zero, one clock pulse is generated during asynchronous loading,
+     * between 2 edges of loading pulse. Some registers require this additional pulse 
+     * to load inputs. This is the delay (in microseconds) between the edge
+     * of loading signal and clk signal, which must be less or equal to pulseWidth. 
+     * NOTE: In this case, loading signal pulse will be wider than pulseWidth.
+     */
+    void SetLdClkPulseDelay(unsigned long ldClkPulseDelay){
+        this->ldClkPulseDelay = ldClkPulseDelay;
+        if (ldClkPulseDelay > pulseWidth){
+            this->ldClkPulseDelay = pulseWidth;
+        }
+    }
+
+    /**
+     * @return Raw input data
+     */
+    uint64_t GetRawData(){ return inputData; }
+
+    /**
+     * @brief Reads data from shift register. 
+     * Should be called in loop.
+     */
+    void ReadData();
+
+    /**
+     * @brief Reads data from desired input
+     * @returns Input data
+     */
+    bool GetInputData(uint8_t num){
+        return ((bool)(inputData & (1 << num))) == inputLogic;
+    }
+
+};
+
+#endif
