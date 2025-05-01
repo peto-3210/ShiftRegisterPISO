@@ -2,4 +2,6 @@
 .vscode/
 lib/
 test/
+platformio.ini
+src/main.cpp
 
