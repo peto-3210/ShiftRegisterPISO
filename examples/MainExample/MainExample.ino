@@ -1,5 +1,5 @@
 #include <Arduino.h>
-#include <PISORegister.h>
+#include <ShiftRegisterPISO.h>
 
 #define clkPin 5
 #define ldPin 4

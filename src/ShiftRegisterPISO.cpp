@@ -1,4 +1,5 @@
-#include "PISORegister.h"
+#include <ShiftRegisterPISO.h>
+
 
 bool PISORegister::GeneratePulse(int pin, bool polarity){
     unsigned long currentEdgeTimestamp = micros();
