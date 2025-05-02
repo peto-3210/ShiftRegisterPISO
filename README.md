@@ -1,2 +1,2 @@
 # ShiftRegisterPISO
-Arduino library for handling PISO shift registers
+Arduino library for controlling PISO shift registers

@@ -1,0 +1,37 @@
+{
+    "name": "ShiftRegisterPISO",
+    "version": "1.0.2",
+    "description": "Arduino library for handling PISO shift registers asynchronously",
+    "keywords": "Shift,Regiser,PISO,Parallel",
+    "authors": [
+      {
+        "name": "peto-3210",
+        "url": "https://github.com/peto-3210",
+        "maintainer": true
+      }
+    ],
+    "repository": {
+      "type": "git",
+      "url": "https://github.com/peto-3210/ShiftRegisterPISO.git"
+    },
+    "homepage": "https://github.com/peto-3210/ShiftRegisterPISO",
+    "export": {
+      "include": [
+        "LICENSE",
+        "library.json",
+        "library.properties",
+        "README.md",
+        "src/*",
+        "examples/*"
+      ]
+    },
+    "examples": [
+      {
+        "name": "MainExample",
+        "base": "examples/MainExample",
+        "files": ["MainExample.ino"]
+      }],
+    "frameworks": ["arduino"],
+    "headers": "ShiftRegisterPISO.h",
+    "license": "LGPL"
+  } 
