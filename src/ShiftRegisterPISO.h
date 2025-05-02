@@ -91,28 +91,19 @@ class PISORegister {
 
     /**
      * @brief In order to mitigate the glitch occurence, the input must stay constant 
-     * for certain time to be considered valid (in microseconds), this time
-     * must be greater or equal to readingDelay (which is default value).
-     * NOTE: This is achieved through counting the reading loops in which
-     * the input was constant.
+     * during multiple reading loops to be considered valid (default is 1).
      */
-    void SetGlitchPrevention(unsigned long glitchDelay){
-        if (glitchDelay < readingDelay){
-            validInputLoopNumber = 1;
-        }
-        else {
-            validInputLoopNumber = glitchDelay / readingDelay;
-            if ((double)glitchDelay / readingDelay > validInputLoopNumber){
-                validInputLoopNumber++;
-            }
-        }
+    void SetGlitchPrevention(unsigned long validInputLoopNumber){
+        this->validInputLoopNumber = validInputLoopNumber;
     }
 
     /**
      * @brief Sets width of 1 pulse (time between 2 edges in microseconds, default is 100)
+     * NOTE: Calling this function will reset ldClkPulseDelay
      */
     void SetPulseWidth(unsigned long pulseWidth){
         this->pulseWidth = pulseWidth;
+        ldClkPulseDelay = 0;
     }
 
     /**
