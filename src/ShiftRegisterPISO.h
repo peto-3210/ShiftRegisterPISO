@@ -11,6 +11,9 @@ class PISORegister {
     int pinNum = 0;
     bool inputLogic = false;
 
+    bool testVal = 0;
+
+
     bool clkPol = true;
     bool ldPol = false;
     unsigned long ldClkPulseDelay = 0;
@@ -59,15 +62,19 @@ class PISORegister {
 
     /**
      * @brief Prepares for reading
-     * @param clkPin Pin used for clock signal
-     * @param ldPin Pin used for asynchronous load signal
-     * @param qhPin Output of shift register
      * @param pinNum Number of register inputs (max 64)
+     * @param clkPin Pin used for clock signal
+     * @param clkPol Polarity of clock edge - true for rising edge, false for falling edge
+     * @param ldPin Pin used for asynchronous load signal
+     * @param ldPol Logic level of asynchronous loading - false for 0, true for 1
+     * @param qhPin Output of shift register
      * @param inputLogic Type of input logic (true for normal, false for inverse)
      */
-    void Init(int clkPin, int ldPin, int qhPin, int pinNum, bool inputLogic){
+    void Init(int pinNum, int clkPin, bool cklPol, int ldPin, bool ldPol, int qhPin, bool inputLogic){
         this->clkPin = clkPin;
+        this->clkPol = clkPol;
         this->ldPin = ldPin;
+        this->ldPol = ldPol;
         this->qhPin = qhPin;
         this->pinNum = pinNum;
         if (pinNum > 64){
@@ -98,26 +105,12 @@ class PISORegister {
     }
 
     /**
-     * @brief Sets width of 1 pulse (time between 2 edges in microseconds, default is 100)
+     * @brief Sets frequency of clock signal (in Hz)
      * NOTE: Calling this function will reset ldClkPulseDelay
      */
-    void SetPulseWidth(unsigned long pulseWidth){
-        this->pulseWidth = pulseWidth;
+    void SetFrequency(unsigned long frequency){
+        this->pulseWidth = (unsigned long)((2/(float)frequency) * 1000000);
         ldClkPulseDelay = 0;
-    }
-
-    /**
-     * @brief Sets polarity of clock edge - true for rising edge, false for falling edge (default is true)
-     */
-    void SetClockPolarity(bool clkPol){
-        this->clkPol = clkPol;
-    }
-
-    /**
-     * @brief Sets logic level of asynchronous loading - false for 0, true for 1 (default is false)
-     */
-    void SetLoadPolarity(bool ldPol){
-        this->ldPol = ldPol;
     }
 
     /**
