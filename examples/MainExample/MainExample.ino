@@ -11,7 +11,7 @@ PISORegister r1;
 void setup() {
   r1.Init(inputCount, clkPin, true, ldPin, false, qhPin, true);
   r1.SetReadingDelay(1000);
-  r1.SetPulseWidth(100);
+  r1.SetFrequency(10000);
   r1.SetLdClkPulseDelay(50);
 
 }

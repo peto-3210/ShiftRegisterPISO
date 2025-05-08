@@ -105,7 +105,7 @@ class PISORegister {
     }
 
     /**
-     * @brief Sets frequency of clock signal (in Hz)
+     * @brief Sets frequency of clock signal (in Hz, default value is 5000)
      * NOTE: Calling this function will reset ldClkPulseDelay
      */
     void SetFrequency(unsigned long frequency){
