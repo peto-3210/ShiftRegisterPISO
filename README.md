@@ -10,7 +10,7 @@ signals, as well as number of register inputs.
 - To obtain data from specific input, use *GetInputData()* method.
 
 Library further provides methods for setting delays between reading or
-adjusting width of single pulse. The real time intervals may depend on computational complexity of the main thread.
+adjusting frequency of clock signal. The real time intervals may depend on computational complexity of the main thread.
 
 To improve input reliability, *SetGlitchPrevention()* method can be used.
 Using this option, input data are updated only if the input has been constant for certain number of reading.
