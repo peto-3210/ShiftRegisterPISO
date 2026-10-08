@@ -1,0 +1,23 @@
+{
+  "name": "ShiftRegisterPISO",
+  "version": "1.0.7",
+  "description": "Asynchronous library for controlling PISO shift registers.",
+  "keywords": "shift register, PISO, asynchronous, signal input/output",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/peto-3210/ShiftRegisterPISO.git"
+  },
+  "authors": [
+    {
+      "name": "peto-3210",
+      "email": "modry321456987@gmail.com"
+    }
+  ],
+  "license": "MIT",
+  "dependencies": {},
+  "frameworks": "*",
+  "platforms": "*",
+  "headers": [
+    "ShiftRegisterPISO.h"
+  ]
+}
