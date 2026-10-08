@@ -3,156 +3,145 @@
 
 bool PISORegister::GeneratePulse(int pin, bool polarity){
     unsigned long currentEdgeTimestamp = micros();
-    //Timer overflow
-    if (currentEdgeTimestamp < lastEdgeTimestamp){
-        lastEdgeTimestamp = 0;
+    if (currentEdgeTimestamp - lastEdgeTimestamp < pulseWidthUs){
+        return false;
     }
 
     //Beginning of wave - first edge
-    if (currentEdgeTimestamp - lastEdgeTimestamp > pulseWidth){
-        if (edgeCount == 0){
-            digitalWrite(pin, polarity);
-            edgeCount++;
-        }
-
-        //Second edge
-        else if(edgeCount == 1){
-            digitalWrite(pin, !polarity);
-            edgeCount++;
-        }
-
-        //End of wave
-        else {
-            edgeCount = 0;
-            return true;
-        }
+    if (edgeCount == 0){
+        digitalWrite(pin, polarity);
+        edgeCount = 1;
         lastEdgeTimestamp = currentEdgeTimestamp;
+        return false;
     }
-    return false;
+
+    //Second edge - end of wave
+    digitalWrite(pin, !polarity);
+    edgeCount = 0;
+    lastEdgeTimestamp = currentEdgeTimestamp;
+    return true;
 }
 
 bool PISORegister::GenerateNestedPulse(int innerPin, bool innerPolarity, int outerPin, bool outerPolarity){
     unsigned long currentEdgeTimestamp = micros();
-    //Timer overflow
-    if (currentEdgeTimestamp < lastEdgeTimestamp){
-        lastEdgeTimestamp = 0;
+
+    //Time that has to elapse before the next edge of this waveform
+    unsigned long requiredGap;
+    switch (edgeCount){
+        case 0:  requiredGap = pulseWidthUs;     break;  //idle time before the outer pulse
+        case 1:  requiredGap = ldClkPulseGapUs;  break;  //outer edge -> inner edge
+        case 2:  requiredGap = pulseWidthUs;     break;  //inner pulse width
+        default: requiredGap = ldClkPulseGapUs;  break;  //inner edge -> outer edge
     }
 
-    //Beginning of wave - First outer edge
-    if (edgeCount == 0 && currentEdgeTimestamp - lastEdgeTimestamp > pulseWidth){
-        digitalWrite(outerPin, outerPolarity);
-        edgeCount++;
-        lastEdgeTimestamp = currentEdgeTimestamp;
+    if (currentEdgeTimestamp - lastEdgeTimestamp < requiredGap){
+        return false;
     }
+    lastEdgeTimestamp = currentEdgeTimestamp;
 
-    //First inner edge
-    else if (edgeCount == 1 && currentEdgeTimestamp - lastEdgeTimestamp > ldClkPulseDelay){
-        digitalWrite(innerPin, innerPolarity);
-        edgeCount++;
-        lastEdgeTimestamp = currentEdgeTimestamp;
-    }
+    switch (edgeCount){
+        //First outer (ld) edge
+        case 0:
+            digitalWrite(outerPin, outerPolarity);
+            edgeCount = 1;
+            return false;
 
-    //Second inner edge
-    else if(edgeCount == 2 && currentEdgeTimestamp - lastEdgeTimestamp > pulseWidth){
-        digitalWrite(innerPin, !innerPolarity);
-        edgeCount++;
-        lastEdgeTimestamp = currentEdgeTimestamp;
-    }
+        //First inner (clk) edge
+        case 1:
+            digitalWrite(innerPin, innerPolarity);
+            edgeCount = 2;
+            return false;
 
-    //Second outer edge
-    else if (edgeCount == 3 && currentEdgeTimestamp - lastEdgeTimestamp > ldClkPulseDelay){
-        digitalWrite(outerPin, !outerPolarity);
-        edgeCount++;
-        lastEdgeTimestamp = currentEdgeTimestamp;
-    }
+        //Second inner (clk) edge
+        case 2:
+            digitalWrite(innerPin, !innerPolarity);
+            edgeCount = 3;
+            return false;
 
-    //End of wave
-    else if (currentEdgeTimestamp - lastEdgeTimestamp > pulseWidth){
-        edgeCount = 0;
-        return true;
+        //Second outer (ld) edge - end of wave
+        default:
+            digitalWrite(outerPin, !outerPolarity);
+            edgeCount = 0;
+            return true;
     }
-    return false;
 }
 
 bool PISORegister::GenerateLoadPulse(){
-    //During loading pulse
-    if (pulseCount == 0) {
-        if (ldClkPulseDelay != 0){
-            pulseCount = GenerateNestedPulse(clkPin, clkPol, ldPin, ldPol);
-        }
-        else {
-            pulseCount = GeneratePulse(ldPin, ldPol);
-        }
-        return false;
+    if (ldClkPulseGapUs != 0){
+        return GenerateNestedPulse(clkPin, clkPolarity, ldPin, ldPolarity);
     }
-
-    //After loading pulse
-    pulseCount = 0;
-    return true;
+    return GeneratePulse(ldPin, ldPolarity);
 }
 
 bool PISORegister::ShiftAndRead(){
-    if (GeneratePulse(clkPin, clkPol) == true){
-        edgeCount = 0;
-        //During reading
-        if (pulseCount < pinNum){
-            rawInputData |= (digitalRead(qhPin) << pulseCount);
-            pulseCount++;
-            return false;
-        }
-
-        //Reading finished
+    //pinNumber clock pulses are generated per reading
+    if (clkPulseCount >= pinNumber){
         return true;
     }
-    return false;
+
+    if (GeneratePulse(clkPin, clkPolarity) == true){
+        clkPulseCount++;
+
+        //Bit 0 is already read right after the loading pulse 
+        //The last pulse only shifts the final bit out of the register
+        if (bitIndex < pinNumber){
+            currentInputData |= (uint64_t)(digitalRead(qhPin) != 0 ? 1 : 0) << bitIndex;
+            bitIndex++;
+        }
+    }
+
+    return clkPulseCount >= pinNumber;
 }
 
 
-bool PISORegister::VerifyAndStore(){
+bool PISORegister::ValidateInput(){
 
     //To remove possible glitches
-    if (lastInputData != rawInputData){
+    if (lastInputData != currentInputData){
+        lastInputData = currentInputData;
         constantInputLoopsCounter = 1;
-        lastInputData = rawInputData;
-        return false;
     }
-    else if (constantInputLoopsCounter < validInputLoopNumber){
+    else if (constantInputLoopsCounter < 0xFFFF){
         constantInputLoopsCounter++;
+    }
+
+    if (constantInputLoopsCounter < validInputLoopNumber){
         return false;
     }
 
-    validInputData = lastInputData;
-    constantInputLoopsCounter = 0;
-    pulseCount = 0;
+    validInputData = currentInputData;
     return true;
 }
 
 void PISORegister::ReadData(){
     unsigned long currentReadingTimestamp = micros();
-    //Timer overflow
-    if (currentReadingTimestamp < lastReadingTimestamp){
-        lastReadingTimestamp = 0;
+
+    if (currentReadingTimestamp - lastReadingTimestamp < readingDelay){
+        return;
     }
-    if (currentReadingTimestamp - lastReadingTimestamp > readingDelay){
 
-        //Loading phase, lasts for 1 pulse
-        if (phase == false){
-            if (GenerateLoadPulse() == true){
-                //First input bit loads with LD pulse
-                rawInputData |= (digitalRead(qhPin) << pulseCount++);
-                phase = true;
-            }
+    //Loading phase, lasts for 1 pulse
+    if (phase == false){
+        if (GenerateLoadPulse() == true){
+            //First input bit loads with LD pulse
+            currentInputData = 0;
+            bitIndex = 0;
+            clkPulseCount = 0;
+            currentInputData |= (uint64_t)(digitalRead(qhPin) != 0 ? 1 : 0) << bitIndex;
+            bitIndex++;
+            phase = true;
         }
+    }
 
-        //Reading phase, lasts for pinNum pulses
-        else {
-            if (ShiftAndRead() == true){
-                VerifyAndStore();
+    //Reading phase, lasts for pinNumber pulses
+    else {
+        if (ShiftAndRead() == true){
+            ValidateInput();
 
-                rawInputData = 0;
-                phase = false;
-                lastReadingTimestamp = currentReadingTimestamp;
-            }
+            bitIndex = 0;
+            clkPulseCount = 0;
+            phase = false;
+            lastReadingTimestamp = micros();
         }
     }
 }

@@ -1,7 +1,7 @@
-#include <Arduino.h>
+#ifndef SHIFT_REGISTER_PISO_H
+#define SHIFT_REGISTER_PISO_H
 
-#ifndef SHIFT_STRUCT
-#define SHIFT_STRUCT
+#include <Arduino.h>
 
 class PISORegister {
     private:
@@ -10,35 +10,35 @@ class PISORegister {
     int clkPin = 0;
     int ldPin = 0;
     int qhPin = 0;
-    int pinNum = 0;
+    int pinNumber = 0;
 
-    bool inputLogic = false;
-    bool clkPol = true;
-    bool ldPol = false;
+    bool inputLogic = true;
+    bool clkPolarity = true;
+    bool ldPolarity = false;
 
-    unsigned long ldClkPulseDelay = 0;
-    unsigned long pulseWidth = 100;
+    unsigned long ldClkPulseGapUs = 0;
+    unsigned long pulseWidthUs = 100;       //half of the clock period -> 5000 Hz
     unsigned long readingDelay = 0;
-    int validInputLoopNumber = 2;
+    uint16_t validInputLoopNumber = 1;
 
     //Internal variables for pulse functions
-    int edgeCount = 0;
-    int pulseCount = 0;
+    uint8_t edgeCount = 0;
     unsigned long lastEdgeTimestamp = 0;
 
     //Internal variables for reading function
-    bool phase = false; //false for LD pulse, true for clk pulses
+    bool phase = false;                     //false for LD pulse, true for clk pulses
+    int bitIndex = 0;                       //index of the next input bit to be stored
+    int clkPulseCount = 0;                  //clock pulses issued during the current reading
     unsigned long lastReadingTimestamp = 0;
-    uint16_t constantInputLoopsCounter;
+    uint16_t constantInputLoopsCounter = 0;
 
     //Data variables
-    uint64_t validInputData;
-    uint64_t lastInputData;
-    uint64_t rawInputData;
-
+    uint64_t validInputData = 0;
+    uint64_t lastInputData = 0;
+    uint64_t currentInputData = 0;
 
     /**
-     * @brief Generates single pulse, f.e. rising and falling edge (or vice versa) 
+     * @brief Generates single pulse, f.e. rising and falling edge (or vice versa)
      * @param pin Pin for pulse
      * @param polarity True for rising edge first, false otherwise
      * @return False when pulsing, true when done
@@ -47,8 +47,9 @@ class PISORegister {
 
     /**
      * @brief Generates "nested" rising and falling edge pulse (one pulse inside another).
-     * The outer pulse will start 1 ldClkPulseDelay before the start of inner pulse and will end 1 ldClkPulseDelay 
-     * after the inner pulse ended. This is useful when register requires clock pulse for asynchronous load.
+     * The outer pulse will start 1 ldClkPulseGapUs before the start of inner pulse and will end
+     * 1 ldClkPulseGapUs after the inner pulse ended. This is useful when register requires clock
+     * pulse for asynchronous load.
      * @param innerPin Pin for inner pulse
      * @param innerPolarity True for rising edge first, false otherwise
      * @param outerPin Pin for outer pulse
@@ -57,35 +58,57 @@ class PISORegister {
      */
     bool GenerateNestedPulse(int innerPin, bool innerPolarity, int outerPin, bool outerPolarity);
 
+    /**
+     * @brief Resets the internal state machine and data buffers.
+     */
+    void Reset(){
+        edgeCount = 0;
+        lastEdgeTimestamp = 0;
+        phase = false;
+        bitIndex = 0;
+        clkPulseCount = 0;
+        lastReadingTimestamp = 0;
+        constantInputLoopsCounter = 0;
+        validInputData = 0;
+        lastInputData = 0;
+        currentInputData = 0;
+    }
+
     public:
     PISORegister(){}
 
     /**
      * @brief Prepares for reading
-     * @param pinNum Number of register inputs (max 64)
+     * @param pinNumber Number of register inputs (1 to 64)
      * @param clkPin Pin used for clock signal
      * @param ldPin Pin used for asynchronous load signal
      * @param qhPin Input from shift register
-     * @param clkPol Polarity of clock edge - true for rising edge, false for falling edge
-     * @param ldPol Logic level of asynchronous loading - false for 0, true for 1
+     * @param clkPolarity Polarity of clock edge - true for rising edge, false for falling edge
+     * @param ldPolarity Logic level of asynchronous loading - false for 0, true for 1
      * @param inputLogic Type of input logic (true for normal, false for inverse)
      */
-    void Init(int pinNum, int clkPin, int ldPin, int qhPin, bool cklPol, bool ldPol, bool inputLogic){
-        this->clkPin = clkPin;
-        this->clkPol = clkPol;
-        this->ldPin = ldPin;
-        this->ldPol = ldPol;
-        this->qhPin = qhPin;
-        this->pinNum = pinNum;
-        if (pinNum > 64){
-            pinNum = 64;
+    void Init(int pinNumber, int clkPin, int ldPin, int qhPin, bool clkPolarity, bool ldPolarity, bool inputLogic){
+        if (pinNumber > 64){
+            pinNumber = 64;
         }
+        if (pinNumber < 1){
+            pinNumber = 1;
+        }
+        this->pinNumber = pinNumber;
+
+        this->clkPin = clkPin;
+        this->clkPolarity = clkPolarity;
+        this->ldPin = ldPin;
+        this->ldPolarity = ldPolarity;
+        this->qhPin = qhPin;
         this->inputLogic = inputLogic;
 
+        Reset();
+
         pinMode(clkPin, OUTPUT);
-        digitalWrite(clkPin, !clkPol);
+        digitalWrite(clkPin, !clkPolarity);
         pinMode(ldPin, OUTPUT);
-        digitalWrite(ldPin, !ldPol);
+        digitalWrite(ldPin, !ldPolarity);
         pinMode(qhPin, INPUT);
     }
 
@@ -97,40 +120,58 @@ class PISORegister {
     }
 
     /**
-     * @brief In order to mitigate the glitch occurence, the input must stay constant 
-     * during multiple reading loops to be considered valid (default is 1).
+     * @brief In order to mitigate the glitch occurence, the input must stay constant
+     * during this many consecutive reading loops to be considered valid.
+     * 1 (the default) means no filtering - every reading is accepted.
      */
-    void SetGlitchPrevention(unsigned long validInputLoopNumber){
+    void SetGlitchPrevention(uint16_t validInputLoopNumber){
+        if (validInputLoopNumber < 1){
+            validInputLoopNumber = 1;
+        }
         this->validInputLoopNumber = validInputLoopNumber;
     }
 
     /**
      * @brief Sets frequency of clock signal (in Hz, default value is 5000)
-     * NOTE: Calling this function will reset ldClkPulseDelay
+     * NOTE: Calling this function will reset ldClkPulseGapUs
      */
     void SetFrequency(unsigned long frequency){
-        this->pulseWidth = (unsigned long)((2/(float)frequency) * 1000000);
-        ldClkPulseDelay = 0;
+        if (frequency == 0){
+            frequency = 1;
+        }
+        //pulseWidthUs is half of the clock period
+        unsigned long width = 500000UL / frequency;
+        if (width < 1){
+            width = 1;
+        }
+        this->pulseWidthUs = width;
+        this->ldClkPulseGapUs = 0;
     }
 
     /**
-     * @brief If not zero, one clock pulse is generated during asynchronous loading,
-     * between 2 edges of loading pulse. Some registers require this additional pulse 
+     * @brief Used to generate single clock pulse during asynchronous loading,
+     * between 2 edges of loading pulse. Some registers require this additional pulse
      * to load inputs. This is the delay (in microseconds) between the edge
-     * of loading signal and clk signal, which must be less or equal to pulseWidth. 
+     * of loading signal and clk signal, which must be less or equal to pulseWidth.
+     * Set to 0 to disable.
      * NOTE: In this case, loading signal pulse will be wider than pulseWidth.
      */
-    void SetLdClkPulseDelay(unsigned long ldClkPulseDelay){
-        this->ldClkPulseDelay = ldClkPulseDelay;
-        if (ldClkPulseDelay > pulseWidth){
-            this->ldClkPulseDelay = pulseWidth;
+    void SetLoadingAndClockPulseGap(unsigned long ldClkPulseGapUs){
+        if (ldClkPulseGapUs > pulseWidthUs){
+            ldClkPulseGapUs = pulseWidthUs;
         }
+        this->ldClkPulseGapUs = ldClkPulseGapUs;
     }
 
     /**
-     * @return Data from all inputs
+     * @return Number of configured register inputs
      */
-    uint64_t GetAllInputData(){ return validInputData; }
+    int GetPinNumber() const { return pinNumber; }
+
+    /**
+     * @return Data from all inputs (raw, without inputLogic applied)
+     */
+    uint64_t GetAllInputData() const { return validInputData; }
 
     /**
      * @brief Generates loading pulse.
@@ -139,7 +180,7 @@ class PISORegister {
     bool GenerateLoadPulse();
 
     /**
-     * @brief Shifts data and reads input.
+     * @brief Shifts data and reads input. Generates pinNumber clock pulses per reading
      * @return True when all data was read, false otherwise
      */
     bool ShiftAndRead();
@@ -148,20 +189,24 @@ class PISORegister {
      * @brief Verifies and stores input data if valid.
      * @return True if data was stored, false otherwise
      */
-    bool VerifyAndStore();
+    bool ValidateInput();
 
     /**
-     * @brief Reads data from shift register. 
+     * @brief Reads data from shift register.
      * Should be called in loop.
      */
     void ReadData();
 
     /**
      * @brief Reads data from desired input
-     * @returns Input data
+     * @param num Input number (0 to pinNumber-1)
+     * @returns Input data, false if num is out of range
      */
-    bool GetInput(uint8_t num){
-        return ((bool)(validInputData & (1 << num))) == inputLogic;
+    bool GetInput(uint8_t num) const {
+        if (num >= (uint8_t)pinNumber){
+            return false;
+        }
+        return ((validInputData & ((uint64_t)1 << num)) != 0) == inputLogic;
     }
 
 };
